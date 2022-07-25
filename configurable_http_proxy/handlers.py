@@ -208,11 +208,40 @@ class ProxyHandler(WebSocketHandler):
             self.handle_proxy_error_default(code, err)
 
     async def get_target_url(self, path):
-        self.target = self.proxy.target_for_req(None, path)
-        if self.target is None:
+        sticky = 'mc-route'
+        routes = [path]
+        # r = self.get_secure_cookie(sticky)
+        r = self.get_cookie(sticky)
+        if r:
+            try: r = r.decode('utf-8')
+            except: pass
+            if not path.startswith(r):
+                routes.append(f'{r}/{path}')
+
+        for path in routes:
+            self.target = self.proxy.target_for_req(None, path)
+            if self.target: break
+        else:
             await self.handle_proxy_error(404, err=None)
             return
 
+        # self.target = self.proxy.target_for_req(None, path)
+        # if self.target is None:
+        #     await self.handle_proxy_error(404, err=None)
+        #     return
+
+        if r and path.startswith(r): pass
+        else:
+            r = self.target['prefix']
+            if r[0] == '/': r = r[1:]
+            # self.set_secure_cookie(sticky, r)
+            self.set_cookie(sticky, r)
+
+        url = self._get_url(path)
+        print(f'{path} -> {url}')
+        return url
+
+    def _get_url(self, path):
         prefix, target = self.target["prefix"], self.target["target"]
         self.proxy.log.debug(f"PROXY WEB {self.request.path} to {target}")
 
@@ -307,6 +336,7 @@ class ProxyHandler(WebSocketHandler):
             await self.handle_proxy_error(503, err)
             return
 
+        self.proxy.log.debug(f'ROUTE REPLY [{response.code}]')
         self.set_status(response.code)
         # NOTE: Is there a better way to handle this part ? We are currently using the private _headers
         #       In tornado 6 - This is Server, Content-Type, Date
@@ -315,6 +345,8 @@ class ProxyHandler(WebSocketHandler):
             if key.lower() in ("content-length", "transfer-encoding", "content-encoding", "connection"):
                 # Ignore these headers
                 continue
+            if key.lower() in ('location', 'referer'):
+                print(f'** {key}: {val}')
             if key.lower() in existing_headers:  # Replace existing values from the proxy server
                 self.set_header(key, val)
             else:
