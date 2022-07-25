@@ -68,7 +68,8 @@ class PythonProxy:
         self.proxy_app = Application(
             [
                 (r"/(.*)", ProxyHandler, {"proxy": self}),
-            ]
+            ],
+            cookie_secret = 'TODO: change this secret!!'
         )
 
     def add_route(self, path, data):
