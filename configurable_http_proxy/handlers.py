@@ -230,15 +230,16 @@ class ProxyHandler(WebSocketHandler):
         #     await self.handle_proxy_error(404, err=None)
         #     return
 
-        if r and path.startswith(r): pass
-        else:
+        if r is None or r and not path.startswith(r + '/'):
             r = self.target['prefix']
             if r[0] == '/': r = r[1:]
             # self.set_secure_cookie(sticky, r)
-            self.set_cookie(sticky, r)
+            if r: self.set_cookie(sticky, r)
+        # elif r: self.clear_cookie(sticky)
 
-        url = self._get_url(path)
-        print(f'{path} -> {url}')
+        ppath = f'/{path}'
+        url = self._get_url(ppath)
+        print(f'{ppath} -> {url}', self.target)
         return url
 
     def _get_url(self, path):
@@ -323,6 +324,11 @@ class ProxyHandler(WebSocketHandler):
             request_timeout=self.proxy.proxy_timeout,
         )
 
+    def _location_url(self, path):
+        loc = urllib.parse.urlparse(path)
+        loc = loc._replace(path=self.target['prefix'].rstrip('/') + '/' + loc.path.lstrip('/'))
+        return urllib.parse.urlunparse(loc)
+
     async def call_proxy(self, path=None):
         url = await self.get_target_url(path)
         if url is None:
@@ -336,7 +342,7 @@ class ProxyHandler(WebSocketHandler):
             await self.handle_proxy_error(503, err)
             return
 
-        self.proxy.log.debug(f'ROUTE REPLY [{response.code}]')
+        # self.proxy.log.debug(f'ROUTE REPLY [{response.code}]')
         self.set_status(response.code)
         # NOTE: Is there a better way to handle this part ? We are currently using the private _headers
         #       In tornado 6 - This is Server, Content-Type, Date
@@ -346,12 +352,14 @@ class ProxyHandler(WebSocketHandler):
                 # Ignore these headers
                 continue
             if key.lower() in ('location', 'referer'):
-                print(f'** {key}: {val}')
+                val, v0 = self._location_url(val), val
+                print(f'** {response.code}/{key}: {v0} => {val}')
             if key.lower() in existing_headers:  # Replace existing values from the proxy server
                 self.set_header(key, val)
             else:
                 self.add_header(key, val)
         if response.body:
+            print('** body', len(response.body))
             self.write(response.body)
             self.set_header("Content-Length", len(response.body))
         self.finish()
